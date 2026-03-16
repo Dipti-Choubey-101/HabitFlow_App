@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class DashboardScreen extends StatefulWidget {
   final String userName;
@@ -27,15 +27,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
     loadData();
   }
 
+  String get userId => FirebaseAuth.instance.currentUser?.uid ?? '';
+
   Future<void> loadData() async {
-    final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('current_user_email') ?? 'guest';
-    final habitsJson = prefs.getString('habits_$email') ?? '[]';
-    setState(() {
-      habits = List<Map<String, dynamic>>.from(jsonDecode(habitsJson));
-      streak = prefs.getInt('streak') ?? 0;
-      totalCompletions = prefs.getInt('totalCompletions') ?? 0;
-    });
+    if (userId.isEmpty) return;
+    try {
+      final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .get();
+      if (doc.exists) {
+        setState(() {
+          habits = List<Map<String, dynamic>>.from(
+            doc.data()?['habits'] ?? []);
+          streak = doc.data()?['streak'] ?? 0;
+          totalCompletions = doc.data()?['totalCompletions'] ?? 0;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading data: $e');
+    }
   }
 
   String getGreeting() {
@@ -45,7 +56,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return 'Good Evening';
   }
 
-  int getCompleted() => habits.where((h) => (h['completedCount'] ?? 0) >= (h['frequency'] ?? 1)).length;
+  int getCompleted() => habits.where((h) =>
+    (h['completedCount'] ?? 0) >= (h['frequency'] ?? 1)).length;
 
   int getPercent() {
     if (habits.isEmpty) return 0;
@@ -87,12 +99,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                         Text(
                           _getFormattedDate(),
-                          style: GoogleFonts.inter(fontSize: 12, color: textMuted),
+                          style: GoogleFonts.inter(
+                            fontSize: 12, color: textMuted),
                         ),
                       ],
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
                         color: cardColor,
                         borderRadius: BorderRadius.circular(20),
@@ -100,7 +114,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.local_fire_department, color: Colors.orange, size: 16),
+                          const Icon(Icons.local_fire_department,
+                            color: Colors.orange, size: 16),
                           const SizedBox(width: 4),
                           Text('$streak day streak',
                             style: GoogleFonts.inter(
@@ -132,30 +147,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('${getGreeting()},',
-                            style: GoogleFonts.inter(fontSize: 14, color: Colors.white70)),
-                          Text(widget.userName,
-                            style: GoogleFonts.inter(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('${getGreeting()},',
+                              style: GoogleFonts.inter(
+                                fontSize: 14, color: Colors.white70)),
+                            Text(widget.userName,
+                              style: GoogleFonts.inter(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            habits.isEmpty
-                              ? 'Add some habits to get started!'
-                              : completed == habits.length
-                                ? 'All habits done! Amazing! 🎉'
-                                : '$remaining habit${remaining != 1 ? "s" : ""} remaining today',
-                            style: GoogleFonts.inter(fontSize: 13, color: Colors.white70),
-                          ),
-                        ],
+                            const SizedBox(height: 6),
+                            Text(
+                              habits.isEmpty
+                                ? 'Add some habits to get started!'
+                                : completed == habits.length
+                                  ? 'All habits done! Amazing! 🎉'
+                                  : '$remaining habit${remaining != 1 ? "s" : ""} remaining today',
+                              style: GoogleFonts.inter(
+                                fontSize: 13, color: Colors.white70),
+                            ),
+                          ],
+                        ),
                       ),
-                      const Text('🌟', style: TextStyle(fontSize: 40)),
+                      const Text('🌟',
+                        style: TextStyle(fontSize: 40)),
                     ],
                   ),
                 ),
@@ -171,10 +192,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   mainAxisSpacing: 12,
                   childAspectRatio: 1.6,
                   children: [
-                    _statCard('Total Habits', '${habits.length}', Icons.checklist, const Color(0xFF7C5CFC)),
-                    _statCard('Completed', '$completed', Icons.check_circle_outline, const Color(0xFF4ADE80)),
-                    _statCard('Day Streak', '$streak', Icons.local_fire_department, const Color(0xFFFB923C)),
-                    _statCard("Today's Rate", '$percent%', Icons.percent, const Color(0xFF38BDF8)),
+                    _statCard('Total Habits', '${habits.length}',
+                      Icons.checklist, const Color(0xFF7C5CFC)),
+                    _statCard('Completed', '$completed',
+                      Icons.check_circle_outline,
+                      const Color(0xFF4ADE80)),
+                    _statCard('Day Streak', '$streak',
+                      Icons.local_fire_department,
+                      const Color(0xFFFB923C)),
+                    _statCard("Today's Rate", '$percent%',
+                      Icons.percent, const Color(0xFF38BDF8)),
                   ],
                 ),
 
@@ -194,8 +221,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            "Today's Progress",
+                          Text("Today's Progress",
                             style: GoogleFonts.inter(
                               fontSize: 16,
                               fontWeight: FontWeight.w700,
@@ -217,17 +243,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         child: LinearProgressIndicator(
                           value: percent / 100,
                           backgroundColor: Colors.white10,
-                          valueColor: const AlwaysStoppedAnimation<Color>(purpleColor),
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                            purpleColor),
                           minHeight: 10,
                         ),
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        percent == 0 ? 'Add some habits to get started!' :
-                        percent < 50 ? 'Good start! Keep going! 🚀' :
-                        percent < 100 ? 'Halfway there! Amazing work! ⭐' :
-                        '🎉 All habits completed! You are a champion!',
-                        style: GoogleFonts.inter(fontSize: 12, color: textMuted),
+                        percent == 0
+                          ? 'Add some habits to get started!'
+                          : percent < 50
+                            ? 'Good start! Keep going! 🚀'
+                            : percent < 100
+                              ? 'Halfway there! Amazing work! ⭐'
+                              : '🎉 All habits completed! You are a champion!',
+                        style: GoogleFonts.inter(
+                          fontSize: 12, color: textMuted),
                       ),
                     ],
                   ),
@@ -247,7 +278,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     ),
                     Text('${habits.length} total',
-                      style: GoogleFonts.inter(fontSize: 12, color: textMuted)),
+                      style: GoogleFonts.inter(
+                        fontSize: 12, color: textMuted)),
                   ],
                 ),
 
@@ -264,7 +296,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       child: Center(
                         child: Column(
                           children: [
-                            const Icon(Icons.eco_outlined, color: textMuted, size: 40),
+                            const Icon(Icons.eco_outlined,
+                              color: textMuted, size: 40),
                             const SizedBox(height: 10),
                             Text('No habits yet!',
                               style: GoogleFonts.inter(
@@ -273,13 +306,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                             ),
                             Text('Go to My Habits to add some',
-                              style: GoogleFonts.inter(color: textMuted, fontSize: 12)),
+                              style: GoogleFonts.inter(
+                                color: textMuted, fontSize: 12)),
                           ],
                         ),
                       ),
                     )
                   : Column(
-                      children: habits.take(5).map((habit) => _habitPreviewItem(habit)).toList(),
+                      children: habits.take(5)
+                        .map((habit) => _habitPreviewItem(habit))
+                        .toList(),
                     ),
 
                 const SizedBox(height: 20),
@@ -288,7 +324,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Center(
                   child: Text(
                     'Made with 💜 by Dipti Choubey',
-                    style: GoogleFonts.inter(fontSize: 11, color: textMuted),
+                    style: GoogleFonts.inter(
+                      fontSize: 11, color: textMuted),
                   ),
                 ),
 
@@ -301,7 +338,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _statCard(String label, String value, IconData icon, Color color) {
+  Widget _statCard(String label, String value,
+    IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -332,7 +370,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               Text(label,
-                style: GoogleFonts.inter(fontSize: 11, color: textMuted)),
+                style: GoogleFonts.inter(
+                  fontSize: 11, color: textMuted)),
             ],
           ),
         ],
@@ -341,7 +380,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _habitPreviewItem(Map<String, dynamic> habit) {
-    final isDone = (habit['completedCount'] ?? 0) >= (habit['frequency'] ?? 1);
+    final isDone = (habit['completedCount'] ?? 0) >=
+      (habit['frequency'] ?? 1);
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
@@ -349,12 +389,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         color: cardColor,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: isDone ? purpleColor.withOpacity(0.3) : Colors.white10,
-        ),
+          color: isDone
+            ? purpleColor.withOpacity(0.3)
+            : Colors.white10),
       ),
       child: Row(
         children: [
-          Text(habit['icon'] ?? '💧', style: const TextStyle(fontSize: 20)),
+          Text(habit['icon'] ?? '💧',
+            style: const TextStyle(fontSize: 20)),
           const SizedBox(width: 12),
           Expanded(
             child: Text(habit['name'] ?? '',
@@ -362,15 +404,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: isDone ? textMuted : Colors.white,
-                decoration: isDone ? TextDecoration.lineThrough : null,
+                decoration: isDone
+                  ? TextDecoration.lineThrough
+                  : null,
               ),
             ),
           ),
           if (isDone)
-            const Icon(Icons.check_circle, color: Color(0xFF4ADE80), size: 20)
+            const Icon(Icons.check_circle,
+              color: Color(0xFF4ADE80), size: 20)
           else
-            Text('${habit['completedCount'] ?? 0}/${habit['frequency'] ?? 1}',
-              style: GoogleFonts.inter(fontSize: 12, color: textMuted)),
+            Text(
+              '${habit['completedCount'] ?? 0}/${habit['frequency'] ?? 1}',
+              style: GoogleFonts.inter(
+                fontSize: 12, color: textMuted)),
         ],
       ),
     );
@@ -378,8 +425,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   String _getFormattedDate() {
     final now = DateTime.now();
-    final days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-    final months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    final days = ['Sunday','Monday','Tuesday','Wednesday',
+      'Thursday','Friday','Saturday'];
+    final months = ['Jan','Feb','Mar','Apr','May','Jun',
+      'Jul','Aug','Sep','Oct','Nov','Dec'];
     return '${days[now.weekday % 7]}, ${months[now.month - 1]} ${now.day}';
   }
 }

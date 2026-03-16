@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dashboard_screen.dart';
 import 'habits_screen.dart';
 import 'progress_screen.dart';
@@ -28,10 +28,10 @@ class _HomeScreenState extends State<HomeScreen> {
     loadUserName();
   }
 
-  Future<void> loadUserName() async {
-    final prefs = await SharedPreferences.getInstance();
+  void loadUserName() {
+    final user = FirebaseAuth.instance.currentUser;
     setState(() {
-      userName = prefs.getString('current_user_name') ?? 'Friend';
+      userName = user?.displayName ?? user?.email?.split('@')[0] ?? 'Friend';
     });
   }
 
@@ -51,7 +51,8 @@ class _HomeScreenState extends State<HomeScreen> {
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: cardColor,
-          border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
+          border: Border(
+            top: BorderSide(color: Colors.white.withOpacity(0.05))),
         ),
         child: BottomNavigationBar(
           currentIndex: currentIndex,
@@ -61,14 +62,35 @@ class _HomeScreenState extends State<HomeScreen> {
           type: BottomNavigationBarType.fixed,
           selectedItemColor: purpleColor,
           unselectedItemColor: const Color(0xFF6B6B8A),
-          selectedLabelStyle: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600),
+          selectedLabelStyle: GoogleFonts.inter(
+            fontSize: 11, fontWeight: FontWeight.w600),
           unselectedLabelStyle: GoogleFonts.inter(fontSize: 11),
           items: const [
-            BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home), label: 'Home'),
-            BottomNavigationBarItem(icon: Icon(Icons.checklist_outlined), activeIcon: Icon(Icons.checklist), label: 'Habits'),
-            BottomNavigationBarItem(icon: Icon(Icons.bar_chart_outlined), activeIcon: Icon(Icons.bar_chart), label: 'Progress'),
-            BottomNavigationBarItem(icon: Icon(Icons.emoji_events_outlined), activeIcon: Icon(Icons.emoji_events), label: 'Badges'),
-            BottomNavigationBarItem(icon: Icon(Icons.person_outline), activeIcon: Icon(Icons.person), label: 'Profile'),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.home_outlined),
+              activeIcon: Icon(Icons.home),
+              label: 'Home',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.checklist_outlined),
+              activeIcon: Icon(Icons.checklist),
+              label: 'Habits',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.bar_chart_outlined),
+              activeIcon: Icon(Icons.bar_chart),
+              label: 'Progress',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.emoji_events_outlined),
+              activeIcon: Icon(Icons.emoji_events),
+              label: 'Badges',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.person_outline),
+              activeIcon: Icon(Icons.person),
+              label: 'Profile',
+            ),
           ],
         ),
       ),

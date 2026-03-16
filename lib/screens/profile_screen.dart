@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
-import 'login_screen.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class ProfileScreen extends StatefulWidget {
   final String userName;
@@ -34,41 +33,52 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> loadData() async {
-    final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('current_user_email') ?? 'guest';
-    final habitsJson = prefs.getString('habits_$email') ?? '[]';
-    final weeklyJson = prefs.getString('weeklyData') ?? '{}';
-    final weeklyData = Map<String, dynamic>.from(jsonDecode(weeklyJson));
-    setState(() {
-      habits = List<Map<String, dynamic>>.from(jsonDecode(habitsJson));
-      streak = prefs.getInt('streak') ?? 0;
-      totalCompletions = prefs.getInt('totalCompletions') ?? 0;
-      activeDays = weeklyData.length;
-      userName = prefs.getString('current_user_name') ?? widget.userName;
-      nameController.text = userName;
-    });
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .get();
+
+      if (doc.exists) {
+        final data = doc.data()!;
+        final habitsList = List<Map<String, dynamic>>.from(
+          data['habits'] ?? []);
+        setState(() {
+          habits = habitsList;
+          streak = data['streak'] ?? 0;
+          totalCompletions = data['totalCompletions'] ?? 0;
+          activeDays = data['activeDays'] ?? 0;
+          userName = data['name'] ?? widget.userName;
+          nameController.text = userName;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading data: $e');
+    }
   }
 
   Future<void> saveName() async {
     final newName = nameController.text.trim();
     if (newName.isEmpty) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('current_user_name', newName);
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    await user.updateDisplayName(newName);
+    await FirebaseFirestore.instance
+      .collection('users')
+      .doc(user.uid)
+      .set({'name': newName}, SetOptions(merge: true));
+
     setState(() => userName = newName);
     showSnack('✅ Name updated successfully!');
   }
 
   Future<void> logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('current_user_email');
-    await prefs.remove('current_user_name');
-    if (mounted) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-        (route) => false,
-      );
-    }
+    await FirebaseAuth.instance.signOut();
   }
 
   Future<void> resetAllData() async {
@@ -83,13 +93,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
         content: Text(
-          'This will delete ALL your habits and progress permanently! This cannot be undone.',
+          'This will delete ALL your habits and progress permanently!',
           style: GoogleFonts.inter(color: textMuted),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text('Cancel', style: GoogleFonts.inter(color: textMuted)),
+            child: Text('Cancel',
+              style: GoogleFonts.inter(color: textMuted)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
@@ -101,13 +112,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
 
     if (confirm == true) {
-      final prefs = await SharedPreferences.getInstance();
-      final email = prefs.getString('current_user_email') ?? 'guest';
-      await prefs.remove('habits_$email');
-      await prefs.remove('weeklyData');
-      await prefs.remove('streak');
-      await prefs.remove('totalCompletions');
-      await prefs.remove('perfectDays');
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .set({
+          'habits': [],
+          'streak': 0,
+          'totalCompletions': 0,
+          'perfectDays': 0,
+          'activeDays': 0,
+        }, SetOptions(merge: true));
+
       setState(() {
         habits = [];
         streak = 0;
@@ -124,7 +142,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         content: Text(message, style: const TextStyle(color: Colors.white)),
         backgroundColor: purpleColor,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12)),
         margin: const EdgeInsets.all(16),
       ),
     );
@@ -141,6 +160,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    final displayName = user?.displayName ?? userName;
+
     return Scaffold(
       backgroundColor: bgColor,
       body: SafeArea(
@@ -184,8 +206,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         child: Center(
                           child: Text(
-                            userName.isNotEmpty
-                              ? userName[0].toUpperCase()
+                            displayName.isNotEmpty
+                              ? displayName[0].toUpperCase()
                               : 'D',
                             style: GoogleFonts.inter(
                               fontSize: 26,
@@ -200,7 +222,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(userName,
+                            Text(displayName,
                               style: GoogleFonts.inter(
                                 fontSize: 18,
                                 fontWeight: FontWeight.w800,
@@ -222,11 +244,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 ),
                                 const SizedBox(width: 6),
                                 Flexible(
-                                  child: _miniBadge('🏆 ${getUnlocked()} badges'),
+                                  child: _miniBadge(
+                                    '🏆 ${getUnlocked()} badges'),
                                 ),
                               ],
                             ),
                           ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // Email info
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: cardColor,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.white10),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.email_outlined,
+                        color: purpleColor, size: 20),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(user?.email ?? 'No email',
+                          style: GoogleFonts.inter(
+                            color: Colors.white70,
+                            fontSize: 13,
+                          ),
                         ),
                       ),
                     ],
@@ -262,15 +312,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         mainAxisSpacing: 12,
                         childAspectRatio: 2,
                         children: [
-                          _statItem(Icons.checklist, '${habits.length}',
-                            'Total Habits', const Color(0xFF7C5CFC)),
+                          _statItem(Icons.checklist,
+                            '${habits.length}', 'Total Habits',
+                            const Color(0xFF7C5CFC)),
                           _statItem(Icons.check_circle_outline,
                             '$totalCompletions', 'Completions',
                             const Color(0xFF4ADE80)),
-                          _statItem(Icons.local_fire_department, '$streak',
-                            'Best Streak', const Color(0xFFFB923C)),
-                          _statItem(Icons.calendar_today, '$activeDays',
-                            'Days Active', const Color(0xFF38BDF8)),
+                          _statItem(Icons.local_fire_department,
+                            '$streak', 'Best Streak',
+                            const Color(0xFFFB923C)),
+                          _statItem(Icons.calendar_today,
+                            '$activeDays', 'Days Active',
+                            const Color(0xFF38BDF8)),
                         ],
                       ),
                     ],
@@ -317,13 +370,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                               child: TextField(
                                 controller: nameController,
-                                style: GoogleFonts.inter(color: Colors.white),
+                                style: GoogleFonts.inter(
+                                  color: Colors.white),
                                 decoration: InputDecoration(
                                   border: InputBorder.none,
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 12),
+                                  contentPadding:
+                                    const EdgeInsets.symmetric(
+                                      horizontal: 14, vertical: 12),
                                   hintText: 'Your name',
-                                  hintStyle: GoogleFonts.inter(color: textMuted),
+                                  hintStyle: GoogleFonts.inter(
+                                    color: textMuted),
                                 ),
                               ),
                             ),
@@ -441,7 +497,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Center(
                   child: Text(
                     'Made with 💜 by Dipti Choubey',
-                    style: GoogleFonts.inter(fontSize: 11, color: textMuted),
+                    style: GoogleFonts.inter(
+                      fontSize: 11, color: textMuted),
                   ),
                 ),
 
@@ -498,7 +555,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
               Text(label,
-                style: GoogleFonts.inter(fontSize: 10, color: textMuted),
+                style: GoogleFonts.inter(
+                  fontSize: 10, color: textMuted),
                 overflow: TextOverflow.ellipsis,
               ),
             ],

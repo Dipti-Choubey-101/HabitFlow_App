@@ -1,19 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'firebase_options.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final prefs = await SharedPreferences.getInstance();
-  final userEmail = prefs.getString('current_user_email');
-  runApp(HabitFlowApp(isLoggedIn: userEmail != null));
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  runApp(const HabitFlowApp());
 }
 
 class HabitFlowApp extends StatelessWidget {
-  final bool isLoggedIn;
-  const HabitFlowApp({super.key, required this.isLoggedIn});
+  const HabitFlowApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -34,7 +36,25 @@ class HabitFlowApp extends StatelessWidget {
           ThemeData.dark().textTheme,
         ),
       ),
-      home: isLoggedIn ? const HomeScreen() : const LoginScreen(),
+      home: StreamBuilder<User?>(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              backgroundColor: Color(0xFF080810),
+              body: Center(
+                child: CircularProgressIndicator(
+                  color: Color(0xFF7C5CFC),
+                ),
+              ),
+            );
+          }
+          if (snapshot.hasData) {
+            return const HomeScreen();
+          }
+          return const LoginScreen();
+        },
+      ),
     );
   }
 }

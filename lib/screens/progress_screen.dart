@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class ProgressScreen extends StatefulWidget {
   const ProgressScreen({super.key});
@@ -27,15 +27,26 @@ class _ProgressScreenState extends State<ProgressScreen> {
     loadData();
   }
 
+  String get userId => FirebaseAuth.instance.currentUser?.uid ?? '';
+
   Future<void> loadData() async {
-    final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('current_user_email') ?? 'guest';
-    final weeklyJson = prefs.getString('weeklyData') ?? '{}';
-    final habitsJson = prefs.getString('habits_$email') ?? '[]';
-    setState(() {
-      weeklyData = Map<String, dynamic>.from(jsonDecode(weeklyJson));
-      habits = List<Map<String, dynamic>>.from(jsonDecode(habitsJson));
-    });
+    if (userId.isEmpty) return;
+    try {
+      final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .get();
+      if (doc.exists) {
+        setState(() {
+          habits = List<Map<String, dynamic>>.from(
+            doc.data()?['habits'] ?? []);
+          weeklyData = Map<String, dynamic>.from(
+            doc.data()?['weeklyData'] ?? {});
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading progress: $e');
+    }
   }
 
   @override
@@ -195,7 +206,9 @@ class _ProgressScreenState extends State<ProgressScreen> {
       final key =
         '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
       final data = weeklyData[key];
-      final percent = data != null ? (data['percentage'] ?? 0) as int : 0;
+      final percent = data != null
+        ? ((data['percentage'] ?? 0) as num).toInt()
+        : 0;
       weekDays.add({
         'day': days[date.weekday % 7],
         'percent': percent,
@@ -212,7 +225,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
         return Column(
           children: [
             Text('$percent%',
-              style: GoogleFonts.inter(fontSize: 9, color: textMuted)),
+              style: GoogleFonts.inter(
+                fontSize: 9, color: textMuted)),
             const SizedBox(height: 4),
             Container(
               width: 28,
@@ -227,7 +241,9 @@ class _ProgressScreenState extends State<ProgressScreen> {
                 width: 28,
                 height: percent.toDouble(),
                 decoration: BoxDecoration(
-                  color: isToday ? purpleColor : purpleColor.withOpacity(0.5),
+                  color: isToday
+                    ? purpleColor
+                    : purpleColor.withOpacity(0.5),
                   borderRadius: BorderRadius.circular(8),
                 ),
               ),
@@ -237,7 +253,9 @@ class _ProgressScreenState extends State<ProgressScreen> {
               style: GoogleFonts.inter(
                 fontSize: 10,
                 color: isToday ? purpleColor : textMuted,
-                fontWeight: isToday ? FontWeight.w700 : FontWeight.normal,
+                fontWeight: isToday
+                  ? FontWeight.w700
+                  : FontWeight.normal,
               ),
             ),
           ],
@@ -248,8 +266,10 @@ class _ProgressScreenState extends State<ProgressScreen> {
 
   Widget _buildCalendar() {
     final dayHeaders = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
-    final firstDay = DateTime(currentYear, currentMonth, 1).weekday % 7;
-    final daysInMonth = DateTime(currentYear, currentMonth + 1, 0).day;
+    final firstDay =
+      DateTime(currentYear, currentMonth, 1).weekday % 7;
+    final daysInMonth =
+      DateTime(currentYear, currentMonth + 1, 0).day;
     final today = DateTime.now();
 
     return Column(
@@ -273,10 +293,11 @@ class _ProgressScreenState extends State<ProgressScreen> {
         GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 7,
-            childAspectRatio: 1,
-          ),
+          gridDelegate:
+            const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+              childAspectRatio: 1,
+            ),
           itemCount: firstDay + daysInMonth,
           itemBuilder: (_, index) {
             if (index < firstDay) return const SizedBox();
@@ -284,16 +305,23 @@ class _ProgressScreenState extends State<ProgressScreen> {
             final key =
               '$currentYear-${currentMonth.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
             final data = weeklyData[key];
-            final percent = data != null ? (data['percentage'] ?? 0) as int : 0;
+            final percent = data != null
+              ? ((data['percentage'] ?? 0) as num).toInt()
+              : 0;
             final isToday = today.day == day &&
               today.month == currentMonth &&
               today.year == currentYear;
 
             Color cellColor = Colors.transparent;
-            if (percent > 0 && percent < 40) cellColor = purpleColor.withOpacity(0.2);
-            else if (percent >= 40 && percent < 70) cellColor = purpleColor.withOpacity(0.4);
-            else if (percent >= 70 && percent < 100) cellColor = purpleColor.withOpacity(0.7);
-            else if (percent == 100) cellColor = purpleColor;
+            if (percent > 0 && percent < 40) {
+              cellColor = purpleColor.withOpacity(0.2);
+            } else if (percent >= 40 && percent < 70) {
+              cellColor = purpleColor.withOpacity(0.4);
+            } else if (percent >= 70 && percent < 100) {
+              cellColor = purpleColor.withOpacity(0.7);
+            } else if (percent == 100) {
+              cellColor = purpleColor;
+            }
 
             return Container(
               margin: const EdgeInsets.all(2),
@@ -310,8 +338,12 @@ class _ProgressScreenState extends State<ProgressScreen> {
                     fontSize: 10,
                     color: isToday
                       ? Colors.white
-                      : percent > 0 ? Colors.white : textMuted,
-                    fontWeight: isToday ? FontWeight.w700 : FontWeight.normal,
+                      : percent > 0
+                        ? Colors.white
+                        : textMuted,
+                    fontWeight: isToday
+                      ? FontWeight.w700
+                      : FontWeight.normal,
                   ),
                 ),
               ),
@@ -342,10 +374,13 @@ class _ProgressScreenState extends State<ProgressScreen> {
         Container(
           width: 10,
           height: 10,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          decoration: BoxDecoration(
+            color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 4),
-        Text(label, style: GoogleFonts.inter(fontSize: 10, color: textMuted)),
+        Text(label,
+          style: GoogleFonts.inter(
+            fontSize: 10, color: textMuted)),
       ],
     );
   }
@@ -378,7 +413,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
               SizedBox(
                 width: 90,
                 child: Text(entry.key,
-                  style: GoogleFonts.inter(fontSize: 11, color: Colors.white70),
+                  style: GoogleFonts.inter(
+                    fontSize: 11, color: Colors.white70),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -389,14 +425,16 @@ class _ProgressScreenState extends State<ProgressScreen> {
                   child: LinearProgressIndicator(
                     value: percent,
                     backgroundColor: Colors.white10,
-                    valueColor: const AlwaysStoppedAnimation<Color>(purpleColor),
+                    valueColor: const AlwaysStoppedAnimation<Color>(
+                      purpleColor),
                     minHeight: 8,
                   ),
                 ),
               ),
               const SizedBox(width: 8),
               Text('${entry.value}',
-                style: GoogleFonts.inter(fontSize: 12, color: textMuted)),
+                style: GoogleFonts.inter(
+                  fontSize: 12, color: textMuted)),
             ],
           ),
         );

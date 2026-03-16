@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class AchievementsScreen extends StatefulWidget {
   const AchievementsScreen({super.key});
@@ -28,16 +28,27 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     loadData();
   }
 
+  String get userId => FirebaseAuth.instance.currentUser?.uid ?? '';
+
   Future<void> loadData() async {
-    final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('current_user_email') ?? 'guest';
-    final habitsJson = prefs.getString('habits_$email') ?? '[]';
-    setState(() {
-      habits = List<Map<String, dynamic>>.from(jsonDecode(habitsJson));
-      streak = prefs.getInt('streak') ?? 0;
-      totalCompletions = prefs.getInt('totalCompletions') ?? 0;
-      perfectDays = prefs.getInt('perfectDays') ?? 0;
-    });
+    if (userId.isEmpty) return;
+    try {
+      final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .get();
+      if (doc.exists) {
+        setState(() {
+          habits = List<Map<String, dynamic>>.from(
+            doc.data()?['habits'] ?? []);
+          streak = doc.data()?['streak'] ?? 0;
+          totalCompletions = doc.data()?['totalCompletions'] ?? 0;
+          perfectDays = doc.data()?['perfectDays'] ?? 0;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading achievements: $e');
+    }
   }
 
   List<Map<String, dynamic>> get achievements => [
@@ -82,19 +93,25 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
 
   int _getDailyPercent() {
     if (habits.isEmpty) return 0;
-    final done = habits.where((h) => (h['completedCount'] ?? 0) >= (h['frequency'] ?? 1)).length;
+    final done = habits.where((h) =>
+      (h['completedCount'] ?? 0) >= (h['frequency'] ?? 1)).length;
     return ((done / habits.length) * 100).round();
   }
 
   List<Map<String, dynamic>> get filteredAchievements {
-    if (filter == 'unlocked') return achievements.where((a) => a['unlocked'] == true).toList();
-    if (filter == 'locked') return achievements.where((a) => a['unlocked'] == false).toList();
+    if (filter == 'unlocked') {
+      return achievements.where((a) => a['unlocked'] == true).toList();
+    }
+    if (filter == 'locked') {
+      return achievements.where((a) => a['unlocked'] == false).toList();
+    }
     return achievements;
   }
 
   @override
   Widget build(BuildContext context) {
-    final unlocked = achievements.where((a) => a['unlocked'] == true).length;
+    final unlocked = achievements
+      .where((a) => a['unlocked'] == true).length;
     final total = achievements.length;
 
     return Scaffold(
@@ -133,7 +150,9 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                         child: LinearProgressIndicator(
                           value: total > 0 ? unlocked / total : 0,
                           backgroundColor: Colors.white10,
-                          valueColor: const AlwaysStoppedAnimation<Color>(purpleColor),
+                          valueColor:
+                            const AlwaysStoppedAnimation<Color>(
+                              purpleColor),
                           minHeight: 8,
                         ),
                       ),
@@ -155,20 +174,23 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
               SliverPadding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 sliver: SliverGrid(
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    childAspectRatio: 1.4,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                  ),
+                  gridDelegate:
+                    const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      childAspectRatio: 1.4,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                    ),
                   delegate: SliverChildBuilderDelegate(
-                    (_, i) => _achievementCard(filteredAchievements[i]),
+                    (_, i) => _achievementCard(
+                      filteredAchievements[i]),
                     childCount: filteredAchievements.length,
                   ),
                 ),
               ),
 
-              const SliverToBoxAdapter(child: SizedBox(height: 20)),
+              const SliverToBoxAdapter(
+                child: SizedBox(height: 20)),
             ],
           ),
         ),
@@ -181,11 +203,13 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     return GestureDetector(
       onTap: () => setState(() => filter = value),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
           color: isActive ? purpleColor : cardColor,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: isActive ? purpleColor : Colors.white10),
+          border: Border.all(
+            color: isActive ? purpleColor : Colors.white10),
         ),
         child: Text(label,
           style: GoogleFonts.inter(
@@ -206,7 +230,9 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
         color: cardColor,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isUnlocked ? purpleColor.withOpacity(0.5) : Colors.white10,
+          color: isUnlocked
+            ? purpleColor.withOpacity(0.5)
+            : Colors.white10,
         ),
         gradient: isUnlocked ? LinearGradient(
           colors: [purpleColor.withOpacity(0.1), Colors.transparent],
@@ -235,7 +261,8 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
           ),
           const SizedBox(height: 2),
           Text(achievement['desc'],
-            style: GoogleFonts.inter(fontSize: 9, color: textMuted),
+            style: GoogleFonts.inter(
+              fontSize: 9, color: textMuted),
             textAlign: TextAlign.center,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,

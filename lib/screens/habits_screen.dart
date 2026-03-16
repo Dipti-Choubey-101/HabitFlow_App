@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
-import 'dart:convert';
 
 class HabitsScreen extends StatefulWidget {
   const HabitsScreen({super.key});
@@ -15,7 +15,6 @@ class _HabitsScreenState extends State<HabitsScreen> {
   List<Map<String, dynamic>> habits = [];
   String currentFilter = 'all';
   String searchQuery = '';
-  String userEmail = 'guest';
 
   final nameController = TextEditingController();
   String selectedCategory = '💪 Health';
@@ -40,18 +39,36 @@ class _HabitsScreenState extends State<HabitsScreen> {
     loadHabits();
   }
 
+  String get userId => FirebaseAuth.instance.currentUser?.uid ?? '';
+
   Future<void> loadHabits() async {
-    final prefs = await SharedPreferences.getInstance();
-    userEmail = prefs.getString('current_user_email') ?? 'guest';
-    final habitsJson = prefs.getString('habits_$userEmail') ?? '[]';
-    setState(() {
-      habits = List<Map<String, dynamic>>.from(jsonDecode(habitsJson));
-    });
+    if (userId.isEmpty) return;
+    try {
+      final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .get();
+      if (doc.exists) {
+        setState(() {
+          habits = List<Map<String, dynamic>>.from(
+            doc.data()?['habits'] ?? []);
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading habits: $e');
+    }
   }
 
   Future<void> saveHabits() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('habits_$userEmail', jsonEncode(habits));
+    if (userId.isEmpty) return;
+    try {
+      await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .set({'habits': habits}, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Error saving habits: $e');
+    }
   }
 
   void addHabit() {
@@ -92,12 +109,55 @@ class _HabitsScreenState extends State<HabitsScreen> {
           final newCount = (h['completedCount'] ?? 0) < (h['frequency'] ?? 1)
             ? (h['completedCount'] ?? 0) + 1
             : 0;
-          return {...h, 'completedCount': newCount, 'completed': newCount >= (h['frequency'] ?? 1)};
+          return {
+            ...h,
+            'completedCount': newCount,
+            'completed': newCount >= (h['frequency'] ?? 1),
+          };
         }
         return h;
       }).toList();
     });
     saveHabits();
+    updateStats();
+  }
+
+  Future<void> updateStats() async {
+    if (userId.isEmpty) return;
+    final completed = habits.where((h) =>
+      (h['completedCount'] ?? 0) >= (h['frequency'] ?? 1)).length;
+    final total = habits.length;
+    final percent = total == 0 ? 0 : ((completed / total) * 100).round();
+    final today = DateTime.now().toIso8601String().split('T')[0];
+
+    try {
+      final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .get();
+
+      int totalCompletions = doc.data()?['totalCompletions'] ?? 0;
+      totalCompletions++;
+
+      int perfectDays = doc.data()?['perfectDays'] ?? 0;
+      if (percent == 100) perfectDays++;
+
+      await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .set({
+          'totalCompletions': totalCompletions,
+          'perfectDays': perfectDays,
+          'lastActive': today,
+          'weeklyData.$today': {
+            'total': total,
+            'completed': completed,
+            'percentage': percent,
+          },
+        }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Error updating stats: $e');
+    }
   }
 
   void deleteHabit(String id) {
@@ -106,13 +166,18 @@ class _HabitsScreenState extends State<HabitsScreen> {
       builder: (_) => AlertDialog(
         backgroundColor: cardColor,
         title: Text('Delete Habit',
-          style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700)),
+          style: GoogleFonts.inter(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
         content: Text('Are you sure you want to delete this habit?',
           style: GoogleFonts.inter(color: textMuted)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('Cancel', style: GoogleFonts.inter(color: textMuted)),
+            child: Text('Cancel',
+              style: GoogleFonts.inter(color: textMuted)),
           ),
           TextButton(
             onPressed: () {
@@ -121,7 +186,8 @@ class _HabitsScreenState extends State<HabitsScreen> {
               Navigator.pop(context);
               showSnack('🗑️ Habit deleted!');
             },
-            child: Text('Delete', style: GoogleFonts.inter(color: Colors.redAccent)),
+            child: Text('Delete',
+              style: GoogleFonts.inter(color: Colors.redAccent)),
           ),
         ],
       ),
@@ -134,7 +200,8 @@ class _HabitsScreenState extends State<HabitsScreen> {
         content: Text(message, style: const TextStyle(color: Colors.white)),
         backgroundColor: purpleColor,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12)),
         margin: const EdgeInsets.all(16),
       ),
     );
@@ -177,7 +244,9 @@ class _HabitsScreenState extends State<HabitsScreen> {
                 ),
                 const SizedBox(height: 20),
 
-                Text('Habit Name', style: GoogleFonts.inter(fontSize: 13, color: Colors.white70)),
+                Text('Habit Name',
+                  style: GoogleFonts.inter(
+                    fontSize: 13, color: Colors.white70)),
                 const SizedBox(height: 8),
                 Container(
                   decoration: BoxDecoration(
@@ -198,7 +267,9 @@ class _HabitsScreenState extends State<HabitsScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                Text('Category', style: GoogleFonts.inter(fontSize: 13, color: Colors.white70)),
+                Text('Category',
+                  style: GoogleFonts.inter(
+                    fontSize: 13, color: Colors.white70)),
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -215,12 +286,15 @@ class _HabitsScreenState extends State<HabitsScreen> {
                     underline: const SizedBox(),
                     items: categories.map((c) =>
                       DropdownMenuItem(value: c, child: Text(c))).toList(),
-                    onChanged: (v) => setSheetState(() => selectedCategory = v!),
+                    onChanged: (v) =>
+                      setSheetState(() => selectedCategory = v!),
                   ),
                 ),
                 const SizedBox(height: 16),
 
-                Text('Time of Day', style: GoogleFonts.inter(fontSize: 13, color: Colors.white70)),
+                Text('Time of Day',
+                  style: GoogleFonts.inter(
+                    fontSize: 13, color: Colors.white70)),
                 const SizedBox(height: 8),
                 Row(
                   children: times.map((t) {
@@ -233,7 +307,8 @@ class _HabitsScreenState extends State<HabitsScreen> {
                     final isSelected = selectedTime == t;
                     return Expanded(
                       child: GestureDetector(
-                        onTap: () => setSheetState(() => selectedTime = t),
+                        onTap: () =>
+                          setSheetState(() => selectedTime = t),
                         child: Container(
                           margin: const EdgeInsets.only(right: 6),
                           padding: const EdgeInsets.symmetric(vertical: 8),
@@ -241,13 +316,17 @@ class _HabitsScreenState extends State<HabitsScreen> {
                             color: isSelected ? purpleColor : bgColor,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: isSelected ? purpleColor : Colors.white10),
+                              color: isSelected
+                                ? purpleColor
+                                : Colors.white10),
                           ),
                           child: Center(
                             child: Text(labels[t]!,
                               style: GoogleFonts.inter(
                                 fontSize: 10,
-                                color: isSelected ? Colors.white : textMuted,
+                                color: isSelected
+                                  ? Colors.white
+                                  : textMuted,
                               ),
                               textAlign: TextAlign.center,
                             ),
@@ -260,14 +339,16 @@ class _HabitsScreenState extends State<HabitsScreen> {
                 const SizedBox(height: 16),
 
                 Text('Frequency (times per day)',
-                  style: GoogleFonts.inter(fontSize: 13, color: Colors.white70)),
+                  style: GoogleFonts.inter(
+                    fontSize: 13, color: Colors.white70)),
                 const SizedBox(height: 8),
                 Row(
                   children: [
                     IconButton(
-                      onPressed: () =>
-                        setSheetState(() => frequency = (frequency - 1).clamp(1, 10)),
-                      icon: const Icon(Icons.remove_circle_outline, color: purpleColor),
+                      onPressed: () => setSheetState(() =>
+                        frequency = (frequency - 1).clamp(1, 10)),
+                      icon: const Icon(Icons.remove_circle_outline,
+                        color: purpleColor),
                     ),
                     Text('$frequency',
                       style: GoogleFonts.inter(
@@ -277,22 +358,27 @@ class _HabitsScreenState extends State<HabitsScreen> {
                       ),
                     ),
                     IconButton(
-                      onPressed: () =>
-                        setSheetState(() => frequency = (frequency + 1).clamp(1, 10)),
-                      icon: const Icon(Icons.add_circle_outline, color: purpleColor),
+                      onPressed: () => setSheetState(() =>
+                        frequency = (frequency + 1).clamp(1, 10)),
+                      icon: const Icon(Icons.add_circle_outline,
+                        color: purpleColor),
                     ),
                   ],
                 ),
                 const SizedBox(height: 16),
 
-                Text('Color', style: GoogleFonts.inter(fontSize: 13, color: Colors.white70)),
+                Text('Color',
+                  style: GoogleFonts.inter(
+                    fontSize: 13, color: Colors.white70)),
                 const SizedBox(height: 8),
                 Row(
                   children: colors.map((c) {
-                    final color = Color(int.parse('0xFF${c.substring(1)}'));
+                    final color = Color(
+                      int.parse('0xFF${c.substring(1)}'));
                     final isSelected = selectedColor == c;
                     return GestureDetector(
-                      onTap: () => setSheetState(() => selectedColor = c),
+                      onTap: () =>
+                        setSheetState(() => selectedColor = c),
                       child: Container(
                         margin: const EdgeInsets.only(right: 10),
                         width: 32, height: 32,
@@ -300,7 +386,9 @@ class _HabitsScreenState extends State<HabitsScreen> {
                           color: color,
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: isSelected ? Colors.white : Colors.transparent,
+                            color: isSelected
+                              ? Colors.white
+                              : Colors.transparent,
                             width: 2,
                           ),
                         ),
@@ -310,13 +398,16 @@ class _HabitsScreenState extends State<HabitsScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                Text('Icon', style: GoogleFonts.inter(fontSize: 13, color: Colors.white70)),
+                Text('Icon',
+                  style: GoogleFonts.inter(
+                    fontSize: 13, color: Colors.white70)),
                 const SizedBox(height: 8),
                 Row(
                   children: icons.map((i) {
                     final isSelected = selectedIcon == i;
                     return GestureDetector(
-                      onTap: () => setSheetState(() => selectedIcon = i),
+                      onTap: () =>
+                        setSheetState(() => selectedIcon = i),
                       child: Container(
                         margin: const EdgeInsets.only(right: 8),
                         width: 38, height: 38,
@@ -324,10 +415,13 @@ class _HabitsScreenState extends State<HabitsScreen> {
                           color: isSelected ? purpleColor : bgColor,
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: isSelected ? purpleColor : Colors.white10),
+                            color: isSelected
+                              ? purpleColor
+                              : Colors.white10),
                         ),
                         child: Center(
-                          child: Text(i, style: const TextStyle(fontSize: 18)),
+                          child: Text(i,
+                            style: const TextStyle(fontSize: 18)),
                         ),
                       ),
                     );
@@ -371,9 +465,11 @@ class _HabitsScreenState extends State<HabitsScreen> {
       filtered = filtered.where((h) =>
         (h['completedCount'] ?? 0) >= (h['frequency'] ?? 1)).toList();
     } else if (currentFilter == 'morning') {
-      filtered = filtered.where((h) => h['timeOfDay'] == 'morning').toList();
+      filtered = filtered.where((h) =>
+        h['timeOfDay'] == 'morning').toList();
     } else if (currentFilter == 'evening') {
-      filtered = filtered.where((h) => h['timeOfDay'] == 'evening').toList();
+      filtered = filtered.where((h) =>
+        h['timeOfDay'] == 'evening').toList();
     }
     if (searchQuery.isNotEmpty) {
       filtered = filtered.where((h) =>
@@ -412,14 +508,17 @@ class _HabitsScreenState extends State<HabitsScreen> {
                       border: Border.all(color: Colors.white10),
                     ),
                     child: TextField(
-                      onChanged: (v) => setState(() => searchQuery = v.toLowerCase()),
+                      onChanged: (v) =>
+                        setState(() => searchQuery = v.toLowerCase()),
                       style: GoogleFonts.inter(color: Colors.white),
                       decoration: InputDecoration(
                         hintText: 'Search habits...',
                         hintStyle: GoogleFonts.inter(color: textMuted),
-                        prefixIcon: const Icon(Icons.search, color: textMuted),
+                        prefixIcon: const Icon(Icons.search,
+                          color: textMuted),
                         border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                        contentPadding:
+                          const EdgeInsets.symmetric(vertical: 14),
                       ),
                     ),
                   ),
@@ -447,7 +546,8 @@ class _HabitsScreenState extends State<HabitsScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.list_alt_outlined, color: textMuted, size: 48),
+                        const Icon(Icons.list_alt_outlined,
+                          color: textMuted, size: 48),
                         const SizedBox(height: 12),
                         Text(
                           searchQuery.isNotEmpty
@@ -462,7 +562,8 @@ class _HabitsScreenState extends State<HabitsScreen> {
                           searchQuery.isNotEmpty
                             ? 'Try a different search term'
                             : 'Tap + to add your first habit',
-                          style: GoogleFonts.inter(color: textMuted, fontSize: 12),
+                          style: GoogleFonts.inter(
+                            color: textMuted, fontSize: 12),
                         ),
                       ],
                     ),
@@ -494,7 +595,8 @@ class _HabitsScreenState extends State<HabitsScreen> {
         decoration: BoxDecoration(
           color: isActive ? purpleColor : cardColor,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: isActive ? purpleColor : Colors.white10),
+          border: Border.all(
+            color: isActive ? purpleColor : Colors.white10),
         ),
         child: Text(label,
           style: GoogleFonts.inter(
@@ -508,8 +610,10 @@ class _HabitsScreenState extends State<HabitsScreen> {
   }
 
   Widget _habitItem(Map<String, dynamic> habit) {
-    final isDone = (habit['completedCount'] ?? 0) >= (habit['frequency'] ?? 1);
-    final color = Color(int.parse('0xFF${habit['color'].toString().substring(1)}'));
+    final isDone = (habit['completedCount'] ?? 0) >=
+      (habit['frequency'] ?? 1);
+    final color = Color(
+      int.parse('0xFF${habit['color'].toString().substring(1)}'));
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -517,7 +621,9 @@ class _HabitsScreenState extends State<HabitsScreen> {
         color: cardColor,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isDone ? purpleColor.withOpacity(0.3) : Colors.white10),
+          color: isDone
+            ? purpleColor.withOpacity(0.3)
+            : Colors.white10),
       ),
       child: Row(
         children: [
@@ -533,7 +639,8 @@ class _HabitsScreenState extends State<HabitsScreen> {
             ),
           ),
           const SizedBox(width: 12),
-          Text(habit['icon'] ?? '💧', style: const TextStyle(fontSize: 22)),
+          Text(habit['icon'] ?? '💧',
+            style: const TextStyle(fontSize: 22)),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -544,24 +651,30 @@ class _HabitsScreenState extends State<HabitsScreen> {
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: isDone ? textMuted : Colors.white,
-                    decoration: isDone ? TextDecoration.lineThrough : null,
+                    decoration: isDone
+                      ? TextDecoration.lineThrough
+                      : null,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
                         color: purpleColor.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(habit['category'] ?? '',
-                        style: GoogleFonts.inter(fontSize: 10, color: purpleColor)),
+                        style: GoogleFonts.inter(
+                          fontSize: 10, color: purpleColor)),
                     ),
                     const SizedBox(width: 6),
-                    Text('${habit['completedCount'] ?? 0}/${habit['frequency'] ?? 1}x',
-                      style: GoogleFonts.inter(fontSize: 11, color: textMuted)),
+                    Text(
+                      '${habit['completedCount'] ?? 0}/${habit['frequency'] ?? 1}x',
+                      style: GoogleFonts.inter(
+                        fontSize: 11, color: textMuted)),
                   ],
                 ),
               ],
@@ -570,14 +683,19 @@ class _HabitsScreenState extends State<HabitsScreen> {
           IconButton(
             onPressed: () => toggleHabit(habit['id']),
             icon: Icon(
-              isDone ? Icons.check_circle : Icons.radio_button_unchecked,
-              color: isDone ? const Color(0xFF4ADE80) : textMuted,
+              isDone
+                ? Icons.check_circle
+                : Icons.radio_button_unchecked,
+              color: isDone
+                ? const Color(0xFF4ADE80)
+                : textMuted,
               size: 26,
             ),
           ),
           IconButton(
             onPressed: () => deleteHabit(habit['id']),
-            icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+            icon: const Icon(Icons.delete_outline,
+              color: Colors.redAccent, size: 20),
           ),
         ],
       ),
